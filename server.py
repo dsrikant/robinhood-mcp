@@ -46,13 +46,14 @@ def _wrap(fn, *args, **kwargs) -> dict[str, Any]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
-def rh_login(username: str, password: str, mfa_code: Optional[str] = None) -> dict:
+def rh_login(mfa_code: Optional[str] = None) -> dict:
     """
-    Authenticate with Robinhood. On first use provide username and password.
+    Authenticate with Robinhood. Credentials are read from the ROBINHOOD_USERNAME
+    and ROBINHOOD_PASSWORD environment variables — never passed as parameters.
     If MFA is required, this tool returns an mfa_required response — call it
     again with the mfa_code parameter to complete login.
     """
-    return _wrap(auth.login, username, password, mfa_code)
+    return _wrap(auth.login, mfa_code)
 
 
 @mcp.tool()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -77,35 +78,61 @@ def load_session() -> bool:
         return False
 
 
-def login(username: str, password: str, mfa_code: str | None = None) -> dict[str, Any]:
+def login(mfa_code: str | None = None) -> dict[str, Any]:
     """
-    Authenticate with Robinhood. Persists session to disk on success.
+    Authenticate with Robinhood using credentials from environment variables.
+    Reads ROBINHOOD_USERNAME and ROBINHOOD_PASSWORD from the environment.
+    Persists session to disk on success.
     Returns a result dict or an error/mfa-required dict.
     """
     global _session_loaded_at, _session_account
 
-    # Never log credentials.
+    username = os.environ.get("ROBINHOOD_USERNAME", "").strip()
+    password = os.environ.get("ROBINHOOD_PASSWORD", "").strip()
+
+    if not username or not password:
+        return {
+            "status": "error",
+            "code": "MISSING_CREDENTIALS",
+            "message": "ROBINHOOD_USERNAME and ROBINHOOD_PASSWORD must be set as environment variables.",
+            "action_required": "Set ROBINHOOD_USERNAME and ROBINHOOD_PASSWORD in the MCP server's env config.",
+        }
+
     logger.info("Attempting login for user %s", username)
 
     try:
-        result = rh.login(
-            username=username,
-            password=password,
-            mfa_code=mfa_code,
-            store_session=False,  # We manage persistence ourselves.
-            by_sms=True,
-        )
+        # robin_stocks.login() prints to stdout (progress messages, verification
+        # prompts) which corrupts the MCP stdio transport.  Redirect stdout to a
+        # StringIO buffer for the duration of the call so the JSON-RPC channel
+        # remains clean.  We use store_session=True because in robin_stocks 3.4
+        # the `return data` path is only reached inside `if store_session:`.
+        import io
+        _buf = io.StringIO()
+        _old_stdout = sys.stdout
+        sys.stdout = _buf
+        try:
+            result = rh.authentication.login(
+                username=username,
+                password=password,
+                expiresIn=86400,
+                scope="internal",
+                store_session=True,
+                mfa_code=mfa_code,
+            )
+        finally:
+            sys.stdout = _old_stdout
+            _captured = _buf.getvalue()
+            if _captured:
+                logger.debug("robin_stocks login stdout: %s", _captured.strip())
     except Exception as exc:
         err_str = str(exc)
         logger.warning("Login exception: %s", err_str)
-
-        # robin_stocks raises various exceptions for MFA; detect them.
         if "mfa" in err_str.lower() or "two_factor" in err_str.lower():
             return {
                 "status": "mfa_required",
                 "code": "MFA_REQUIRED",
-                "message": "MFA code required. Call rh_login again with the mfa_code parameter.",
-                "action_required": "Provide the MFA code sent to your device.",
+                "message": "Check your authenticator app or SMS and call rh_login again with your mfa_code.",
+                "action_required": "Call rh_login with mfa_code set to the code from your authenticator app or SMS.",
             }
         return {
             "status": "error",
@@ -122,26 +149,33 @@ def login(username: str, password: str, mfa_code: str | None = None) -> dict[str
             "action_required": "Check your credentials and try again.",
         }
 
+    # Explicit MFA challenge check — Robinhood returns this when a code is needed.
+    if isinstance(result, dict) and result.get("mfa_required"):
+        return {
+            "status": "mfa_required",
+            "code": "MFA_REQUIRED",
+            "message": "Check your authenticator app or SMS and call rh_login again with your mfa_code.",
+            "action_required": "Call rh_login with mfa_code set to the code from your authenticator app or SMS.",
+        }
+
     # Extract access token from the result dict.
     access_token: str | None = None
     if isinstance(result, dict):
         access_token = result.get("access_token")
 
     if not access_token:
-        # Some MFA flows return a challenge response rather than a token.
-        if isinstance(result, dict) and (
-            "mfa_required" in result or result.get("mfa_code") == ""
-        ):
+        # Catch any other MFA-adjacent response shapes.
+        if isinstance(result, dict) and result.get("mfa_code") is not None:
             return {
                 "status": "mfa_required",
                 "code": "MFA_REQUIRED",
-                "message": "MFA code required. Call rh_login again with the mfa_code parameter.",
-                "action_required": "Provide the MFA code sent to your device.",
+                "message": "Check your authenticator app or SMS and call rh_login again with your mfa_code.",
+                "action_required": "Call rh_login with mfa_code set to the code from your authenticator app or SMS.",
             }
         return {
             "status": "error",
             "code": "ROBINHOOD_API_ERROR",
-            "message": "Login succeeded but no access token was returned.",
+            "message": f"Login succeeded but no access token was returned. Response: {result}",
             "action_required": "Try logging in again.",
         }
 

@@ -46,7 +46,10 @@ echo '  "mcpServers": {'
 echo '    "robinhood": {'
 echo "      \"command\": \"$PYTHON_BIN\","
 echo "      \"args\": [\"$SERVER_PATH\"],"
-echo '      "env": {}'
+echo '      "env": {'
+echo '        "ROBINHOOD_USERNAME": "your@email.com",'
+echo '        "ROBINHOOD_PASSWORD": "yourpassword"'
+echo '      }'
 echo '    }'
 echo '  }'
 echo '}'
