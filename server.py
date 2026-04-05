@@ -282,6 +282,15 @@ def rh_get_open_orders() -> dict:
     return _wrap(orders.get_open_orders)
 
 
+@mcp.tool()
+def rh_get_order_history(limit: int = 20) -> dict:
+    """
+    Return the last N filled and cancelled orders across equity and crypto.
+    Results are sorted most-recent first. Default limit is 20; maximum useful range is ~100.
+    """
+    return _wrap(orders.get_order_history, limit)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Crypto order tools
 # ──────────────────────────────────────────────────────────────────────────────
