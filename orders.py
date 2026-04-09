@@ -205,7 +205,33 @@ def order_sell_limit(
     if blocked:
         return blocked
 
+    # Warn if a conflicting stop order already exists on this symbol.
+    conflict_warning: str | None = None
+    try:
+        open_orders = rh.orders.get_all_open_stock_orders() or []
+        for o in open_orders:
+            sym = o.get("symbol", "")
+            if not sym:
+                instr = o.get("instrument", "")
+                try:
+                    instr_data = rh.stocks.get_instrument_by_url(instr)
+                    sym = (instr_data or {}).get("symbol", "")
+                except Exception:
+                    pass
+            if sym.upper() == symbol and o.get("type") in ("stop_limit", "stop_loss"):
+                conflict_warning = (
+                    f"WARNING: You have an open {o.get('type')} order on {symbol} (id: {o.get('id', 'unknown')}). "
+                    "Robinhood does not allow a stop order and a limit sell simultaneously on the same position. "
+                    "Cancel the existing stop order first, or this limit sell may be rejected."
+                )
+                break
+    except Exception as exc:
+        logger.debug("Could not check for conflicting stop orders: %s", exc)
+
     summary = f"Sell {quantity} shares of {symbol} at limit ${limit_price:,.2f} (~${estimated:,.2f} estimated)"
+    if conflict_warning:
+        summary = f"{summary}\n{conflict_warning}"
+
     order_fn = lambda: rh.orders.order_sell_limit(symbol, quantity, limit_price, timeInForce=time_in_force)
     return _execute_or_dryrun(dry_run, confirmation_token, summary, order_fn)
 
@@ -453,6 +479,56 @@ def confirm_order(confirmation_token: str) -> dict[str, Any]:
             "message": str(exc),
             "action_required": "",
         }
+
+
+def get_order_history(limit: int = 20) -> dict[str, Any]:
+    """Return last N filled/cancelled orders across equity and crypto."""
+    results: list[dict[str, Any]] = []
+
+    try:
+        equity_orders = rh.orders.get_all_stock_orders()
+        if equity_orders and isinstance(equity_orders, list):
+            for o in equity_orders:
+                state = o.get("state", "")
+                if state in ("filled", "cancelled", "partially_filled"):
+                    results.append(_normalize_history_order(o, "equity"))
+    except Exception as exc:
+        logger.warning("Failed to fetch equity order history: %s", exc)
+
+    try:
+        crypto_orders = rh.orders.get_all_crypto_orders()
+        if crypto_orders and isinstance(crypto_orders, list):
+            for o in crypto_orders:
+                state = o.get("state", "")
+                if state in ("filled", "cancelled", "partially_filled"):
+                    results.append(_normalize_history_order(o, "crypto"))
+    except Exception as exc:
+        logger.warning("Failed to fetch crypto order history: %s", exc)
+
+    # Sort by created_at descending, most recent first.
+    results.sort(key=lambda o: o.get("created_at") or "", reverse=True)
+    results = results[:limit]
+
+    return {"orders": results, "count": len(results)}
+
+
+def _normalize_history_order(raw: dict[str, Any], asset_type: str) -> dict[str, Any]:
+    return {
+        "order_id": raw.get("id", "unknown"),
+        "asset_type": asset_type,
+        "side": raw.get("side", "unknown"),
+        "type": raw.get("type", "unknown"),
+        "symbol": raw.get("symbol") or raw.get("currency_pair_id", "unknown"),
+        "quantity": raw.get("quantity"),
+        "filled_quantity": raw.get("cumulative_quantity") or raw.get("rounded_executed_notional"),
+        "average_price": raw.get("average_price") or raw.get("executed_notional"),
+        "price": raw.get("price"),
+        "stop_price": raw.get("stop_price"),
+        "time_in_force": raw.get("time_in_force"),
+        "state": raw.get("state", "unknown"),
+        "created_at": raw.get("created_at"),
+        "updated_at": raw.get("updated_at"),
+    }
 
 
 def get_open_orders() -> dict[str, Any]:

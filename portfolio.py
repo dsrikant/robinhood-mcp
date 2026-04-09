@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 import robin_stocks.robinhood as rh
+import robin_stocks.robinhood.helper as rh_helper
 
 logger = logging.getLogger(__name__)
 
@@ -153,10 +154,49 @@ def _build_summary(positions: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def get_account_info() -> dict[str, Any]:
+    """
+    Return account-level data including PDT day trade count, PDT flag status,
+    cash balances, and buying power.
+    """
+    # Fetch raw accounts response — load_account_profile() wrapper does not
+    # reliably surface day_trade_count; the raw results[0] object is authoritative.
+    response = rh_helper.request_get(
+        "https://api.robinhood.com/accounts/",
+        jsonify_data=True,
+    )
+
+    if not response or "results" not in response or not response["results"]:
+        return {"error": "Failed to load account profile. Session may be expired."}
+
+    account = response["results"][0]
+
+    return {
+        "day_trade_count":      _int(account.get("day_trade_count")),
+        "pattern_day_trader":   account.get("pattern_day_trader", False),
+        "cash":                 _float(account.get("cash")),
+        "buying_power":         _float(account.get("buying_power")),
+        "cash_held_for_orders": _float(account.get("cash_held_for_orders")),
+        "portfolio_cash":       _float(account.get("portfolio_cash")),
+        "account_number":       account.get("account_number"),
+        "account_type":         account.get("type"),
+        "sma":                  _float(account.get("sma")),
+    }
+
+
 def _float(val: Any) -> float | None:
     if val is None:
         return None
     try:
         return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int(val: Any) -> int | None:
+    if val is None:
+        return None
+    try:
+        return int(val)
     except (TypeError, ValueError):
         return None

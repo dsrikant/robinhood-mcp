@@ -85,6 +85,22 @@ def rh_get_portfolio() -> dict:
 
 
 @mcp.tool()
+def rh_get_account_info() -> dict:
+    """
+    Return account-level data including PDT day trade count, PDT flag status,
+    cash balances, and buying power.
+
+    day_trade_count: number of day trades used in the rolling 5-trading-day window (resets daily).
+    pattern_day_trader: True if the account has been flagged as a PDT account.
+    cash: settled cash available.
+    buying_power: total buying power including margin if applicable.
+    cash_held_for_orders: cash currently reserved for open orders.
+    portfolio_cash: total cash value in the portfolio.
+    """
+    return _wrap(portfolio.get_account_info)
+
+
+@mcp.tool()
 def rh_get_quote(symbol: str) -> dict:
     """
     Get a real-time quote for any equity or crypto symbol.
@@ -280,6 +296,15 @@ def rh_cancel_order(order_id: str) -> dict:
 def rh_get_open_orders() -> dict:
     """Return all currently open equity and crypto orders."""
     return _wrap(orders.get_open_orders)
+
+
+@mcp.tool()
+def rh_get_order_history(limit: int = 20) -> dict:
+    """
+    Return the last N filled and cancelled orders across equity and crypto.
+    Results are sorted most-recent first. Default limit is 20; maximum useful range is ~100.
+    """
+    return _wrap(orders.get_order_history, limit)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
