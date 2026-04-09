@@ -85,6 +85,22 @@ def rh_get_portfolio() -> dict:
 
 
 @mcp.tool()
+def rh_get_account_info() -> dict:
+    """
+    Return account-level data including PDT day trade count, PDT flag status,
+    cash balances, and buying power.
+
+    day_trade_count: number of day trades used in the rolling 5-trading-day window (resets daily).
+    pattern_day_trader: True if the account has been flagged as a PDT account.
+    cash: settled cash available.
+    buying_power: total buying power including margin if applicable.
+    cash_held_for_orders: cash currently reserved for open orders.
+    portfolio_cash: total cash value in the portfolio.
+    """
+    return _wrap(portfolio.get_account_info)
+
+
+@mcp.tool()
 def rh_get_quote(symbol: str) -> dict:
     """
     Get a real-time quote for any equity or crypto symbol.
